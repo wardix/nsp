@@ -48,6 +48,49 @@ function isUniqueViolation(err: unknown): boolean {
   return e?.code === "23505" || /unique|duplicate key/i.test(msg);
 }
 
+/**
+ * Synchronize employee cooperative membership status (is_member, member_id)
+ * whenever a member is created, updated, or deleted.
+ */
+async function syncEmployeeCoopMembership(
+  database: Db,
+  memberId: string,
+  nik: string | null | undefined,
+  email: string | null | undefined,
+  isActive: boolean
+): Promise<void> {
+  if (isActive) {
+    const conditions: string[] = [];
+    const params: unknown[] = [memberId];
+
+    if (nik && String(nik).trim() !== "") {
+      conditions.push("(nik IS NOT NULL AND nik != '' AND nik = ?)");
+      params.push(String(nik).trim());
+    }
+    if (email && String(email).trim() !== "") {
+      conditions.push("(email IS NOT NULL AND email != '' AND LOWER(email) = LOWER(?))");
+      params.push(String(email).trim());
+    }
+
+    if (conditions.length > 0) {
+      await database.run(
+        `UPDATE employees
+         SET member_id = ?, is_member = true, updated_at = NOW()
+         WHERE ${conditions.join(" OR ")}`,
+        params
+      );
+    }
+  } else {
+    // When member is inactive or soft-deleted, unlink from employees
+    await database.run(
+      `UPDATE employees
+       SET member_id = NULL, is_member = false, updated_at = NOW()
+       WHERE member_id = ?`,
+      [memberId]
+    );
+  }
+}
+
 async function recordInitialSavingsTransactions(
   database: Db,
   memberId: string,
@@ -224,6 +267,10 @@ export async function createMember(
         });
         hasPortalAccess = portal.after.hasPassword || !!portal.after.email;
       }
+
+      // Synchronize employee membership status in real-time
+      const isActive = String(input.status).toLowerCase() === "aktif";
+      await syncEmployeeCoopMembership(database, id, nik, email, isActive);
     })();
   } catch (err) {
     if (err instanceof ServiceError) throw err;
@@ -285,6 +332,13 @@ export async function updateMember(
       if (input.name !== oldMember.name) {
         await database.run(`UPDATE loans SET name = ? WHERE memberId = ?`, [input.name, id]);
       }
+
+      // Synchronize employee membership status in real-time
+      const isActive = String(input.status).toLowerCase() === "aktif";
+      const memberEmail = await database
+        .query("SELECT email FROM members WHERE id = ?")
+        .get<{ email: string | null }>(id);
+      await syncEmployeeCoopMembership(database, id, nik, memberEmail?.email, isActive);
     })();
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -361,6 +415,13 @@ export async function setMemberPortalAccess(
     id,
   ]);
 
+  // Synchronize employee membership with new portal email if member is active
+  const memberStatus = await database
+    .query("SELECT status, nik FROM members WHERE id = ?")
+    .get<{ status: string; nik: string | null }>(id);
+  const isActive = String(memberStatus?.status || "").toLowerCase() === "aktif";
+  await syncEmployeeCoopMembership(database, id, memberStatus?.nik, nextEmail, isActive);
+
   return {
     before: { email: member.email, hasPassword: !!(member.password && member.password.length > 0) },
     after: { email: nextEmail, hasPassword: !!(nextPassword && nextPassword.length > 0) },
@@ -389,6 +450,9 @@ export async function deleteMember(database: Db, id: string): Promise<Pick<Membe
   await database
     .query("UPDATE members SET deletedAt = ? WHERE id = ?")
     .run(new Date().toISOString(), id);
+
+  // Unlink member from employees
+  await syncEmployeeCoopMembership(database, id, null, null, false);
 
   return before;
 }

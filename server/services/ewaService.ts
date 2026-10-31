@@ -628,7 +628,8 @@ export async function getEwaRequestById(db: Db, id: string): Promise<EWARequest 
     .query(
       `SELECT 
         r.id, r.employee_id as "employeeId", e.name as "employeeName", e.nip as "employeeNip",
-        e.is_member as "isMember", r.period_month as "periodMonth",
+        CASE WHEN m.id IS NOT NULL THEN true ELSE COALESCE(e.is_member, false) END as "isMember",
+        r.period_month as "periodMonth",
         COALESCE(r.salary_basis, e.base_salary) as "salaryBasis",
         COALESCE(r.max_limit, e.withdrawal_limit) as "maxLimit",
         r.amount as "amountRequested",
@@ -657,6 +658,11 @@ export async function getEwaRequestById(db: Db, id: string): Promise<EWARequest 
         r.created_at as "createdAt"
        FROM withdrawal_requests r
        JOIN employees e ON r.employee_id = e.id
+       LEFT JOIN members m ON (
+         m.id = e.member_id 
+         OR (m.nik IS NOT NULL AND m.nik != '' AND e.nik IS NOT NULL AND e.nik != '' AND m.nik = e.nik)
+         OR (m.email IS NOT NULL AND m.email != '' AND e.email IS NOT NULL AND e.email != '' AND LOWER(m.email) = LOWER(e.email))
+       ) AND m.deletedAt IS NULL AND m.status = 'Aktif'
        LEFT JOIN admins a ON r.disbursed_by = a.id
        WHERE r.id = ?`
     )
@@ -729,7 +735,8 @@ export async function getEwaRequestsList(
     .query(
       `SELECT 
         r.id, r.employee_id as "employeeId", e.name as "employeeName", e.nip as "employeeNip",
-        e.is_member as "isMember", r.period_month as "periodMonth", 
+        CASE WHEN m.id IS NOT NULL THEN true ELSE COALESCE(e.is_member, false) END as "isMember",
+        r.period_month as "periodMonth", 
         COALESCE(r.salary_basis, e.base_salary) as "salaryBasis",
         COALESCE(r.max_limit, e.withdrawal_limit) as "maxLimit", 
         r.amount as "amountRequested", 
@@ -758,6 +765,11 @@ export async function getEwaRequestsList(
         r.created_at as "createdAt"
        FROM withdrawal_requests r
        JOIN employees e ON r.employee_id = e.id
+       LEFT JOIN members m ON (
+         m.id = e.member_id 
+         OR (m.nik IS NOT NULL AND m.nik != '' AND e.nik IS NOT NULL AND e.nik != '' AND m.nik = e.nik)
+         OR (m.email IS NOT NULL AND m.email != '' AND e.email IS NOT NULL AND e.email != '' AND LOWER(m.email) = LOWER(e.email))
+       ) AND m.deletedAt IS NULL AND m.status = 'Aktif'
        LEFT JOIN admins a ON r.disbursed_by = a.id
        ${whereClause}
        ORDER BY r.created_at DESC
@@ -809,7 +821,8 @@ export async function getPayrollRecap(
   const rows = await db
     .query(
       `SELECT 
-        e.id as "employeeId", e.nip, e.nik, e.name, e.department, e.is_member as "isMember",
+        e.id as "employeeId", e.nip, e.nik, e.name, e.department,
+        CASE WHEN m.id IS NOT NULL THEN true ELSE COALESCE(e.is_member, false) END as "isMember",
         COUNT(r.id) as "txCount",
         SUM(r.amount) as "totalAdvances",
         SUM(r.fee) as "totalFee",
@@ -817,9 +830,14 @@ export async function getPayrollRecap(
         MIN(CASE WHEN r.status = 'transferred' THEN 'DISBURSED' WHEN r.status = 'settled' THEN 'PAID_SETTLED' ELSE UPPER(r.status) END) as "status"
        FROM withdrawal_requests r
        JOIN employees e ON r.employee_id = e.id
+       LEFT JOIN members m ON (
+         m.id = e.member_id 
+         OR (m.nik IS NOT NULL AND m.nik != '' AND e.nik IS NOT NULL AND e.nik != '' AND m.nik = e.nik)
+         OR (m.email IS NOT NULL AND m.email != '' AND e.email IS NOT NULL AND e.email != '' AND LOWER(m.email) = LOWER(e.email))
+       ) AND m.deletedAt IS NULL AND m.status = 'Aktif'
        WHERE (r.period_month = ? OR (r.pay_period_start <= ?::date AND r.pay_period_end >= ?::date)) 
          AND r.status IN ('transferred', 'DISBURSED', 'settled', 'PAID_SETTLED')
-       GROUP BY e.id, e.nip, e.nik, e.name, e.department, e.is_member
+       GROUP BY e.id, e.nip, e.nik, e.name, e.department, e.is_member, m.id
        ORDER BY e.name ASC`
     )
     .all(periodMonth, periodMonth + "-15", periodMonth + "-15");
@@ -1089,32 +1107,38 @@ export async function getEwaEmployeesList(
   const params: any[] = [];
 
   if (search.trim()) {
-    conditions.push('(LOWER(name) LIKE ? OR LOWER(nip) LIKE ? OR LOWER(email) LIKE ?)');
+    conditions.push('(LOWER(e.name) LIKE ? OR LOWER(e.nip) LIKE ? OR LOWER(e.email) LIKE ?)');
     const q = `%${search.trim().toLowerCase()}%`;
     params.push(q, q, q);
   }
   if (status) {
-    conditions.push('LOWER(status) = LOWER(?)');
+    conditions.push('LOWER(e.status) = LOWER(?)');
     params.push(status);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const totalRes = await db
-    .query(`SELECT COUNT(*) as count FROM employees ${whereClause}`)
+    .query(`SELECT COUNT(*) as count FROM employees e ${whereClause}`)
     .get<any>(...params);
   const total = Number(totalRes?.count || 0);
 
   const rows = await db
     .query(
       `SELECT 
-        id, nip, nik, name, email, phone, department, position,
-        base_salary as "baseSalary", member_id as "memberId", is_member as "isMember",
-        bank_name as "bankName", bank_account_number as "bankAccountNumber", bank_account_holder as "bankAccountName",
-        status, contract_end_date as "contractEndDate", created_at as "createdAt", updated_at as "updatedAt"
-       FROM employees
+        e.id, e.nip, e.nik, e.name, e.email, e.phone, e.department, e.position,
+        e.base_salary as "baseSalary", e.member_id as "memberId",
+        CASE WHEN m.id IS NOT NULL THEN true ELSE COALESCE(e.is_member, false) END as "isMember",
+        e.bank_name as "bankName", e.bank_account_number as "bankAccountNumber", e.bank_account_holder as "bankAccountName",
+        e.status, e.contract_end_date as "contractEndDate", e.created_at as "createdAt", e.updated_at as "updatedAt"
+       FROM employees e
+       LEFT JOIN members m ON (
+         m.id = e.member_id 
+         OR (m.nik IS NOT NULL AND m.nik != '' AND e.nik IS NOT NULL AND e.nik != '' AND m.nik = e.nik)
+         OR (m.email IS NOT NULL AND m.email != '' AND e.email IS NOT NULL AND e.email != '' AND LOWER(m.email) = LOWER(e.email))
+       ) AND m.deletedAt IS NULL AND m.status = 'Aktif'
        ${whereClause}
-       ORDER BY name ASC
+       ORDER BY e.name ASC
        LIMIT ? OFFSET ?`
     )
     .all(...params, limit, offset);
