@@ -5,6 +5,7 @@ import { Card } from '@astryxdesign/core/Card';
 import { Button } from '@astryxdesign/core/Button';
 import { Selector } from '@astryxdesign/core/Selector';
 import { CopyableAccountNumber } from '../../../components/CopyableAccountNumber';
+import { CopyableAmount } from '../../../components/CopyableAmount';
 import { formatRp } from '../../../utils/format';
 import { maskName, maskNip } from '../../../utils/privacyMask';
 import { apiFetch } from '../../../config';
@@ -106,11 +107,13 @@ export function DisburseModal({
                     {isDemoMode ? maskNip(request.employeeId || request.id, request.employeeNip) : (request.employeeNip || '-')}
                   </Text>
                 </HStack>
-                <HStack justify="between">
+                <HStack justify="between" vAlign="center">
                   <Text type="supporting">Nominal Dicairkan:</Text>
-                  <Text type="body" weight="bold" style={{ color: 'var(--color-text-success)' }}>
-                    {formatRp(request.disbursedAmount)}
-                  </Text>
+                  <CopyableAmount
+                    amount={request.disbursedAmount}
+                    weight="bold"
+                    textStyle={{ color: 'var(--color-text-success)' }}
+                  />
                 </HStack>
                 <HStack justify="between">
                   <Text type="supporting">Biaya Admin EWA:</Text>

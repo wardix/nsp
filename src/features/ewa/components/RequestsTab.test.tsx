@@ -1,5 +1,5 @@
 import { expect, test, describe, afterEach, mock } from "bun:test";
-import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, act } from "@testing-library/react";
 import { RequestsTab } from "./RequestsTab";
 import type { EWARequest } from "../types";
 import { maskName } from "../../../utils/privacyMask";
@@ -253,6 +253,54 @@ describe("RequestsTab Component (#320)", () => {
     expect(setDisbursedStartDate).toHaveBeenCalledWith("");
     expect(setDisbursedEndDate).toHaveBeenCalledWith("");
     expect(setReqPage).toHaveBeenCalledWith(1);
+  });
+
+  test("renders copy button for disbursed amount in table and copies plain digits", async () => {
+    let copiedText = "";
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: async (text: string) => {
+          copiedText = text;
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    render(
+      <RequestsTab
+        requests={dummyRequests}
+        reqLoading={false}
+        reqSearch=""
+        setReqSearch={() => {}}
+        statusFilter=""
+        setStatusFilter={() => {}}
+        disbursedByFilter=""
+        setDisbursedByFilter={() => {}}
+        disbursedStartDate=""
+        setDisbursedStartDate={() => {}}
+        disbursedEndDate=""
+        setDisbursedEndDate={() => {}}
+        operators={dummyOperators}
+        reqPage={1}
+        reqLimit={20}
+        reqTotal={1}
+        setReqPage={() => {}}
+        isDemoMode={false}
+        actionLoading={false}
+        onDisburse={() => {}}
+        onReject={() => {}}
+      />
+    );
+
+    const copyBtn = screen.getByLabelText("Salin nominal dicairkan");
+    expect(copyBtn).toBeDefined();
+
+    await act(async () => {
+      fireEvent.click(copyBtn);
+    });
+
+    expect(copiedText).toBe("1000000");
   });
 
   test("renders empty state message when no requests match filter", () => {

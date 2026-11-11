@@ -11,6 +11,7 @@ import { StatusBadge } from '../../../components/common/StatusBadge';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import { Pagination } from '../../../components/Pagination';
 import { CopyableAccountNumber } from '../../../components/CopyableAccountNumber';
+import { CopyableAmount } from '../../../components/CopyableAmount';
 import { formatRp } from '../../../utils/format';
 import { maskName, maskNip } from '../../../utils/privacyMask';
 import type { EWARequest } from '../types';
@@ -129,9 +130,7 @@ export function RequestsTab({
         width: proportional(1.2),
         renderCell: (r: EWARequest) => (
           <VStack gap={0}>
-            <Text type="body" weight="semibold" color="primary">
-              {formatRp(r.disbursedAmount)}
-            </Text>
+            <CopyableAmount amount={r.disbursedAmount} weight="semibold" color="primary" />
             <Text type="supporting" color="secondary">
               Fee: {formatRp(r.feeAmount)} ({r.feePercentage}%)
             </Text>
