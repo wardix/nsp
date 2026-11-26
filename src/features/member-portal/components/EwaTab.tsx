@@ -93,6 +93,45 @@ export const EwaTab: React.FC<EwaTabProps> = ({
         </Card>
       )}
 
+      {/* Banner Tagihan Potong Payroll Periode Sebelumnya (Menunggu Pelunasan Gaji) */}
+      {Boolean(ewaQuota && (ewaQuota.previousUnsettledPayrollDeduction || 0) > 0) && ewaQuota && (
+        <Card
+          style={{
+            padding: 16,
+            backgroundColor: 'var(--color-background-warning-subtle)',
+            border: '1px solid var(--color-warning-500)',
+          }}
+        >
+          <VStack gap={2}>
+            <HStack justify="between" vAlign="center" wrap="wrap" gap={2}>
+              <Text type="body" weight="bold" style={{ color: 'var(--color-warning-900, inherit)' }}>
+                ⏳ Tagihan Potong Payroll Periode Sebelumnya (Menunggu Pelunasan Gaji)
+              </Text>
+              {ewaQuota.previousPeriodMonth && (
+                <Badge variant="warning" label={`Periode ${ewaQuota.previousPeriodMonth}`} />
+              )}
+            </HStack>
+            <HStack justify="between" vAlign="center" wrap="wrap" gap={2}>
+              <VStack gap={1}>
+                <Heading level={2} style={{ color: 'var(--color-warning-900, inherit)' }}>
+                  {formatRp(ewaQuota.previousUnsettledPayrollDeduction || 0)}
+                </Heading>
+                <Text type="supporting" color="secondary" style={{ fontSize: 12 }}>
+                  Pokok {formatRp(ewaQuota.previousUnsettledDisbursed || 0)} + Biaya Admin{' '}
+                  {formatRp(ewaQuota.previousUnsettledFee || 0)}
+                  {ewaQuota.previousCycleStartDate && ewaQuota.previousCycleEndDate
+                    ? ` • Siklus: ${ewaQuota.previousCycleStartDate} s/d ${ewaQuota.previousCycleEndDate}`
+                    : ''}
+                </Text>
+              </VStack>
+              <Text type="supporting" color="secondary" style={{ fontSize: 11, maxWidth: 360 }}>
+                Nominal ini adalah penarikan EWA periode lalu yang akan dipotong pada slip gaji tanggal 28 bulan berjalan.
+              </Text>
+            </HStack>
+          </VStack>
+        </Card>
+      )}
+
       {/* Kuota Grid - 4 Kartu Metrik Komprehensif */}
       <Grid gap={4}>
         <Card style={{ padding: 16 }}>

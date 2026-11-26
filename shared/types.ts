@@ -119,6 +119,12 @@ export interface EwaQuotaInfo {
   totalDisbursedThisMonth?: number;        // Total pokok pencairan transaksi cair siklus ini
   totalFeeThisMonth?: number;              // Total biaya admin transaksi cair siklus ini
   pendingPayrollDeductionThisMonth?: number; // Total estimasi potong payroll pengajuan pending siklus ini
+  previousUnsettledPayrollDeduction?: number; // Total tagihan potong payroll periode sebelumnya yang belum lunas (status DISBURSED / transferred)
+  previousUnsettledDisbursed?: number;        // Pokok penarikan periode sebelumnya yang belum lunas
+  previousUnsettledFee?: number;              // Fee penarikan periode sebelumnya yang belum lunas
+  previousPeriodMonth?: string;               // Periode bulan sebelumnya (YYYY-MM)
+  previousCycleStartDate?: string;            // Tanggal awal siklus periode sebelumnya (YYYY-MM-DD)
+  previousCycleEndDate?: string;              // Tanggal akhir siklus periode sebelumnya (YYYY-MM-DD)
   remainingQuota: number; // Sisa kuota yang dapat diajukan hari ini (dailyAccumulatedLimit - totalUsedThisMonth)
   feePercentage: number; // e.g. 2.0% (member) vs 3.5% (non-member)
   isEligible?: boolean;

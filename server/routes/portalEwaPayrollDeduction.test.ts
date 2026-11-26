@@ -3,15 +3,17 @@ import { sign } from "hono/jwt";
 import server from "../index";
 import { secretKey } from "../middleware";
 import db from "../db";
-import { getCurrentPeriodMonth } from "../services/ewaService";
+import { getCurrentPeriodMonth, getPreviousPeriodMonth } from "../services/ewaService";
 
-describe("Portal EWA Payroll Deduction Summary API (#335)", () => {
+describe("Portal EWA Payroll Deduction Summary API (#335, #339)", () => {
   let memberToken: string;
   const testSuffix = Date.now().toString().slice(-6);
 
   let employeeId: number | string;
   const createdReqIds: Array<number | string> = [];
   const currentPeriod = getCurrentPeriodMonth();
+  const previousPeriod = getPreviousPeriodMonth(currentPeriod);
+  let prevUnsettledReqId: number | string;
 
   beforeAll(async () => {
     // 1. Create test employee
@@ -55,7 +57,7 @@ describe("Portal EWA Payroll Deduction Summary API (#335)", () => {
           fee, fee_percentage, destination_bank_name, destination_account_number, destination_account_holder,
           transferred_at, total_payroll_deduction
         ) VALUES (
-          1, ?, 1000000, 'transferred', ?, '2026-10-26', '2026-11-25',
+          1, ?, 1000000, 'transferred', ?, '2026-11-26', '2026-12-25',
           25000, 2.5, 'Bank BCA', '9988776655', 'Karyawan',
           NOW(), 1025000
         ) RETURNING id`
@@ -71,7 +73,7 @@ describe("Portal EWA Payroll Deduction Summary API (#335)", () => {
           fee, fee_percentage, destination_bank_name, destination_account_number, destination_account_holder,
           transferred_at, total_payroll_deduction
         ) VALUES (
-          1, ?, 500000, 'DISBURSED', ?, '2026-10-26', '2026-11-25',
+          1, ?, 500000, 'DISBURSED', ?, '2026-11-26', '2026-12-25',
           12500, 2.5, 'Bank BCA', '9988776655', 'Karyawan',
           NOW(), 512500
         ) RETURNING id`
@@ -87,7 +89,7 @@ describe("Portal EWA Payroll Deduction Summary API (#335)", () => {
           fee, fee_percentage, destination_bank_name, destination_account_number, destination_account_holder,
           total_payroll_deduction
         ) VALUES (
-          1, ?, 300000, 'PENDING', ?, '2026-10-26', '2026-11-25',
+          1, ?, 300000, 'PENDING', ?, '2026-11-26', '2026-12-25',
           7500, 2.5, 'Bank BCA', '9988776655', 'Karyawan',
           307500
         ) RETURNING id`
@@ -103,7 +105,7 @@ describe("Portal EWA Payroll Deduction Summary API (#335)", () => {
           fee, fee_percentage, destination_bank_name, destination_account_number, destination_account_holder,
           rejected_at, rejection_reason, total_payroll_deduction
         ) VALUES (
-          1, ?, 400000, 'rejected', ?, '2026-10-26', '2026-11-25',
+          1, ?, 400000, 'rejected', ?, '2026-11-26', '2026-12-25',
           10000, 2.5, 'Bank BCA', '9988776655', 'Karyawan',
           NOW(), 'Saldo tidak cukup', 410000
         ) RETURNING id`
@@ -111,17 +113,34 @@ describe("Portal EWA Payroll Deduction Summary API (#335)", () => {
       .get<{ id: number | string }>(employeeId, currentPeriod);
     createdReqIds.push(r4!.id);
 
-    // e. Past Cycle: Amount 2.000.000, Fee 50.000, Transferred in past period (Must be EXCLUDED)
-    const r5 = await db
+    // e. Previous Period Unsettled: Amount 750.000, Fee 18.750, Deduction 768.750 (Status DISBURSED) (#339)
+    const rPrev = await db
       .query(
         `INSERT INTO withdrawal_requests (
           employer_id, employee_id, amount, status, period_month, pay_period_start, pay_period_end,
           fee, fee_percentage, destination_bank_name, destination_account_number, destination_account_holder,
           transferred_at, total_payroll_deduction
         ) VALUES (
-          1, ?, 2000000, 'transferred', '2025-01', '2024-12-26', '2025-01-25',
+          1, ?, 750000, 'transferred', ?, '2026-10-26', '2026-11-25',
+          18750, 2.5, 'Bank BCA', '9988776655', 'Karyawan',
+          NOW(), 768750
+        ) RETURNING id`
+      )
+      .get<{ id: number | string }>(employeeId, previousPeriod);
+    prevUnsettledReqId = rPrev!.id;
+    createdReqIds.push(prevUnsettledReqId);
+
+    // f. Past Cycle 2025-01: Amount 2.000.000, Fee 50.000, already settled (Must be EXCLUDED)
+    const r5 = await db
+      .query(
+        `INSERT INTO withdrawal_requests (
+          employer_id, employee_id, amount, status, period_month, pay_period_start, pay_period_end,
+          fee, fee_percentage, destination_bank_name, destination_account_number, destination_account_holder,
+          transferred_at, settled_at, total_payroll_deduction
+        ) VALUES (
+          1, ?, 2000000, 'PAID_SETTLED', '2025-01', '2024-12-26', '2025-01-25',
           50000, 2.5, 'Bank BCA', '9988776655', 'Karyawan',
-          '2025-01-10 10:00:00', 2050000
+          '2025-01-10 10:00:00', '2025-01-28 10:00:00', 2050000
         ) RETURNING id`
       )
       .get<{ id: number | string }>(employeeId);
@@ -140,7 +159,13 @@ describe("Portal EWA Payroll Deduction Summary API (#335)", () => {
     }
   });
 
-  test("GET /api/v1/portal/ewa/quota returns accurate current cycle payroll deduction aggregation", async () => {
+  test("getPreviousPeriodMonth helper correctly computes previous month and year boundary", () => {
+    expect(getPreviousPeriodMonth("2026-12")).toBe("2026-11");
+    expect(getPreviousPeriodMonth("2026-01")).toBe("2025-12");
+    expect(getPreviousPeriodMonth("2026-10")).toBe("2026-09");
+  });
+
+  test("GET /api/v1/portal/ewa/quota returns accurate current cycle payroll deduction aggregation (#335)", async () => {
     const res = await server.fetch(
       new Request("http://localhost/api/v1/portal/ewa/quota", {
         method: "GET",
@@ -168,7 +193,54 @@ describe("Portal EWA Payroll Deduction Summary API (#335)", () => {
     // Pending deduction: 307.500 (only the PENDING request, not mixed into totalPayrollDeductionThisMonth)
     expect(quota.pendingPayrollDeductionThisMonth).toBe(307500);
 
-    // Total used in quota limit calculation includes pending + transferred: 1.000.000 + 500.000 + 300.000 = 1.800.000
+    // Total used in quota limit calculation includes pending + transferred in current period: 1.000.000 + 500.000 + 300.000 = 1.800.000
     expect(quota.totalUsedThisMonth).toBe(1800000);
+  });
+
+  test("GET /api/v1/portal/ewa/quota returns previous cycle unsettled deductions during transition (#339)", async () => {
+    const res = await server.fetch(
+      new Request("http://localhost/api/v1/portal/ewa/quota", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${memberToken}`,
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    const quota = json.data;
+
+    // Previous cycle unsettled deduction info (#339)
+    expect(quota.previousUnsettledPayrollDeduction).toBe(768750);
+    expect(quota.previousUnsettledDisbursed).toBe(750000);
+    expect(quota.previousUnsettledFee).toBe(18750);
+    expect(quota.previousPeriodMonth).toBe(previousPeriod);
+    expect(quota.previousCycleStartDate).toBeDefined();
+    expect(quota.previousCycleEndDate).toBeDefined();
+
+    // Now simulate settling the previous period transaction (PAID_SETTLED)
+    await db.run("UPDATE withdrawal_requests SET status = 'PAID_SETTLED', settled_at = NOW() WHERE id = ?", [
+      prevUnsettledReqId,
+    ]);
+
+    const resAfterSettle = await server.fetch(
+      new Request("http://localhost/api/v1/portal/ewa/quota", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${memberToken}`,
+        },
+      })
+    );
+
+    expect(resAfterSettle.status).toBe(200);
+    const jsonAfter = await resAfterSettle.json();
+    expect(jsonAfter.success).toBe(true);
+
+    // After settlement, previousUnsettledPayrollDeduction automatically resets to 0
+    expect(jsonAfter.data.previousUnsettledPayrollDeduction).toBe(0);
+    expect(jsonAfter.data.previousUnsettledDisbursed).toBe(0);
+    expect(jsonAfter.data.previousUnsettledFee).toBe(0);
   });
 });

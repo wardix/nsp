@@ -134,6 +134,19 @@ export function getCurrentPeriodMonth(asOfDate?: Date | string): string {
   return `${pYear}-${String(pMonth).padStart(2, "0")}`;
 }
 
+export function getPreviousPeriodMonth(periodMonth: string): string {
+  const [yearStr, monthStr] = periodMonth.split("-");
+  const pYear = parseInt(yearStr, 10);
+  const pMonth = parseInt(monthStr, 10);
+  let prevYear = pYear;
+  let prevMonth = pMonth - 1;
+  if (prevMonth < 1) {
+    prevMonth = 12;
+    prevYear -= 1;
+  }
+  return `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
+}
+
 export function getPayrollCycleDates(periodMonth: string, cutoffDay: number = getEwaPayrollCutoffDay()) {
   const [yearStr, monthStr] = periodMonth.split("-");
   const pYear = parseInt(yearStr, 10);
@@ -376,6 +389,31 @@ export async function getEmployeeEwaQuota(
   const remainingQuota = Math.max(0, dailyAccumulatedLimit - totalUsedThisMonth);
   const feePercentage = emp.isMember ? EWA_MEMBER_FEE_PCT : EWA_NON_MEMBER_FEE_PCT;
 
+  // Aggregation for previous period unsettled transactions (transition window between 25th cutoff and 28th payday)
+  const previousPeriod = getPreviousPeriodMonth(period);
+  const { cycleStartDateStr: prevCycleStartDate, cycleEndDateStr: prevCycleEndDate } = getPayrollCycleDates(previousPeriod, cutoffDay);
+
+  const prevUnsettledRes = await db
+    .query(
+      `SELECT 
+         COALESCE(SUM(COALESCE(total_payroll_deduction, amount + fee)), 0) as "previousUnsettledPayrollDeduction",
+         COALESCE(SUM(amount), 0) as "previousUnsettledDisbursed",
+         COALESCE(SUM(fee), 0) as "previousUnsettledFee"
+       FROM withdrawal_requests
+       WHERE employee_id = ? 
+         AND (period_month = ? OR (pay_period_start <= ?::date AND pay_period_end >= ?::date))
+         AND status IN ('transferred', 'DISBURSED')`
+    )
+    .get<{
+      previousUnsettledPayrollDeduction: string | number;
+      previousUnsettledDisbursed: string | number;
+      previousUnsettledFee: string | number;
+    }>(employeeId, previousPeriod, previousPeriod + "-15", previousPeriod + "-15");
+
+  const previousUnsettledPayrollDeduction = Number(prevUnsettledRes?.previousUnsettledPayrollDeduction || 0);
+  const previousUnsettledDisbursed = Number(prevUnsettledRes?.previousUnsettledDisbursed || 0);
+  const previousUnsettledFee = Number(prevUnsettledRes?.previousUnsettledFee || 0);
+
   const isExpired = isContractExpired(emp.contractEndDate);
   const isZeroEffective = effectiveSalary <= 0;
   const isStatusActive = String(emp.status || "").toLowerCase() === "active";
@@ -411,6 +449,12 @@ export async function getEmployeeEwaQuota(
     totalDisbursedThisMonth,
     totalFeeThisMonth,
     pendingPayrollDeductionThisMonth,
+    previousUnsettledPayrollDeduction,
+    previousUnsettledDisbursed,
+    previousUnsettledFee,
+    previousPeriodMonth: previousPeriod,
+    previousCycleStartDate: prevCycleStartDate,
+    previousCycleEndDate: prevCycleEndDate,
     remainingQuota: isEligible ? remainingQuota : 0,
     feePercentage,
     isEligible,

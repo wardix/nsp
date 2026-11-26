@@ -103,4 +103,78 @@ describe("EwaTab Component - Payroll Deduction Summary (#335)", () => {
 
     expect(screen.queryByText(/masih menunggu pencairan/i)).toBeNull();
   });
+
+  test("renders 'Tagihan Potong Payroll Periode Sebelumnya' banner when previousUnsettledPayrollDeduction > 0 (#339)", () => {
+    const quotaWithPrevUnsettled: EwaQuota = {
+      ...dummyQuota,
+      previousUnsettledPayrollDeduction: 768750,
+      previousUnsettledDisbursed: 750000,
+      previousUnsettledFee: 18750,
+      previousPeriodMonth: "2026-10",
+      previousCycleStartDate: "2026-09-26",
+      previousCycleEndDate: "2026-10-25",
+    };
+
+    render(
+      <EwaTab
+        profile={dummyProfile}
+        ewaQuota={quotaWithPrevUnsettled}
+        ewaHistory={dummyHistory}
+        feeTiers={[]}
+        ewaLoading={false}
+        ewaAmount=""
+        setEwaAmount={() => {}}
+        ewaSubmitLoading={false}
+        ewaError=""
+        ewaSuccess=""
+        onApplyEwa={() => {}}
+      />
+    );
+
+    // Banner title
+    expect(
+      screen.getByText(/Tagihan Potong Payroll Periode Sebelumnya \(Menunggu Pelunasan Gaji\)/i)
+    ).toBeDefined();
+
+    // Main amount
+    expect(screen.getByText("Rp 768.750")).toBeDefined();
+
+    // Breakdown subtext
+    expect(screen.getByText(/Pokok Rp 750\.000 \+ Biaya Admin Rp 18\.750/i)).toBeDefined();
+
+    // Previous cycle range
+    expect(screen.getByText(/2026-09-26 s\/d 2026-10-25/i)).toBeDefined();
+
+    // Badge
+    expect(screen.getByText("Periode 2026-10")).toBeDefined();
+  });
+
+  test("does not render previous unsettled banner when previousUnsettledPayrollDeduction is 0 or undefined (#339)", () => {
+    const quotaWithoutPrevUnsettled: EwaQuota = {
+      ...dummyQuota,
+      previousUnsettledPayrollDeduction: 0,
+      previousUnsettledDisbursed: 0,
+      previousUnsettledFee: 0,
+    };
+
+    render(
+      <EwaTab
+        profile={dummyProfile}
+        ewaQuota={quotaWithoutPrevUnsettled}
+        ewaHistory={dummyHistory}
+        feeTiers={[]}
+        ewaLoading={false}
+        ewaAmount=""
+        setEwaAmount={() => {}}
+        ewaSubmitLoading={false}
+        ewaError=""
+        ewaSuccess=""
+        onApplyEwa={() => {}}
+      />
+    );
+
+    expect(
+      screen.queryByText(/Tagihan Potong Payroll Periode Sebelumnya \(Menunggu Pelunasan Gaji\)/i)
+    ).toBeNull();
+  });
 });

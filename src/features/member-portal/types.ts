@@ -122,6 +122,12 @@ export interface EwaQuota {
   totalDisbursedThisMonth?: number;
   totalFeeThisMonth?: number;
   pendingPayrollDeductionThisMonth?: number;
+  previousUnsettledPayrollDeduction?: number;
+  previousUnsettledDisbursed?: number;
+  previousUnsettledFee?: number;
+  previousPeriodMonth?: string;
+  previousCycleStartDate?: string;
+  previousCycleEndDate?: string;
   dailyAccumulatedLimit?: number;
   currentDayInCycle?: number;
   totalDaysInCycle?: number;
